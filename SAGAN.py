@@ -406,8 +406,11 @@ class SAGAN(object):
                         past_g_loss = g_loss
                         step = 'G'
 
-                    print("Epoch: [%2d] [%5d/%5d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, step %s, ratio %s" \
-                          % (epoch, idx, self.iteration, time.time() - start_time, d_loss, g_loss, step, str(self.G2D_ratio)))
+                    print("Epoch: [{:2d}] [{:5d}/{:5d}] "
+                          "time: {:4.4f}, d_loss: {:.8f}, "
+                          "g_loss: {:.8f}, step {}, ratio {}".format(epoch, idx, self.iteration,
+                                                                     time.time() - start_time, d_loss,
+                                                                     g_loss, step, self.G2D_ratio))
 
                 else:
                     d_loss = update_D()
