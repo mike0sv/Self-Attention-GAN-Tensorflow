@@ -400,9 +400,14 @@ class SAGAN(object):
                     if np.random.rand() < self.G2D_ratio:
                         d_loss = update_D()
                         past_d_loss = d_loss
+                        step = 'D'
                     else:
                         g_loss = update_G()
                         past_g_loss = g_loss
+                        step = 'G'
+
+                    print("Epoch: [%2d] [%5d/%5d] time: %4.4f, d_loss: %.8f, g_loss: %.8f, step %s, ratio %s" \
+                          % (epoch, idx, self.iteration, time.time() - start_time, d_loss, g_loss, step, str(self.G2D_ratio)))
 
                 else:
                     d_loss = update_D()
@@ -411,14 +416,14 @@ class SAGAN(object):
                         g_loss = update_G()
                         past_g_loss = g_loss
 
+
+                    g_loss = g_loss or past_g_loss
+                    d_loss = d_loss or past_d_loss
+
+                    print("Epoch: [%2d] [%5d/%5d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
+                          % (epoch, idx, self.iteration, time.time() - start_time, d_loss, g_loss))
                 # display training status
                 counter += 1
-                g_loss = g_loss or past_g_loss
-                d_loss = d_loss or past_d_loss
-
-                print("Epoch: [%2d] [%5d/%5d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
-                      % (epoch, idx, self.iteration, time.time() - start_time, d_loss, g_loss))
-
                 # save training results for every 300 steps
                 if np.mod(idx+1, self.print_freq) == 0:
                     samples = self.sess.run(self.fake_images, feed_dict={self.z: self.sample_z})
