@@ -297,26 +297,10 @@ class SAGAN(object):
         """" Testing """
         # for test
         self.fake_images = self.generator(self.z, is_training=False, reuse=True)
-        self.R_logits = self.discriminator(self.fake_images, is_training=False, reuse=True)
 
         """ Summary """
         self.d_sum = tf.summary.scalar("d_loss", self.d_loss)
         self.g_sum = tf.summary.scalar("g_loss", self.g_loss)
-
-        self.g_loss_D_raw_true = tf.nn.sigmoid_cross_entropy_with_logits(logits=self.R_logits,
-                                                                         labels=tf.ones_like(self.R_logits))
-        self.g_loss_D_raw_false = tf.nn.sigmoid_cross_entropy_with_logits(logits=self.R_logits,
-                                                                          labels=tf.zeros_like(self.R_logits))
-
-        self.D_prob_fake_G_image = tf.nn.softmax(
-            tf.concat(
-                [self.g_loss_D_raw_false,
-                 self.g_loss_D_raw_true], 1))
-        self.D_prob_fake_G_image_mean = tf.reduce_mean(
-            self.D_prob_fake_G_image[:, 0])
-
-        self.actual_G_quality_sum = tf.summary.scalar("G_quality",
-                                                      self.D_prob_fake_G_image_mean)
 
     ##################################################################################
     # Train
@@ -390,19 +374,6 @@ class SAGAN(object):
                 d_loss = None
                 g_loss = None
                 if self.use_controller:
-                    # self.target_G_quality = self.target_starting_G_quality + (
-                    #         self.target_ending_G_quality - self.target_starting_G_quality) * (epoch / self.epoch)
-                    #
-                    # self.actual_G_quality, summary_str = self.sess.run(
-                    #     [self.D_prob_fake_G_image_mean, self.actual_G_quality_sum],
-                    #     feed_dict={
-                    #         self.z: self.sample_z
-                    #     },
-                    # )
-                    # self.writer.add_summary(summary_str, counter)
-                    #
-                    # self.control_error = self.actual_G_quality - self.target_G_quality
-                    # self.G2D_ratio = np.clip(self.G2D_ratio + self.control_gain * self.control_error, a_min=0, a_max=1)
                     if past_d_loss == -1:
                         self.G2D_ratio = 1
                     elif past_g_loss == -1:
@@ -412,7 +383,8 @@ class SAGAN(object):
                     else:
                         mean_g_loss = np.mean(generator_losses[-self.control_window:])
                         mean_d_loss = np.mean(discriminator_losses[-self.control_window:])
-                        self.G2D_ratio = (self.critic_power * mean_d_loss) / (self.critic_power * mean_d_loss + mean_g_loss)
+                        self.G2D_ratio = (self.critic_power * mean_d_loss) / (
+                                    self.critic_power * mean_d_loss + mean_g_loss)
 
                     if np.random.rand() < self.G2D_ratio:
                         d_loss = update_D()
