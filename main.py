@@ -46,6 +46,16 @@ def parse_args():
     parser.add_argument('--sample_dir', type=str, default='samples',
                         help='Directory name to save the samples on training')
 
+    # controller
+    parser.add_argument('--use_controller', type=lambda x: x == 'True', default=True,
+                        help='Use controller to balance generator/discriminator quality')
+    parser.add_argument('--target_starting_G_quality', type=float, default=0.25,
+                        help='Target loss ratio of generator in the beginning of the training for the controller [0.25]')
+    parser.add_argument('--target_ending_G_quality', type=float, default=0.25,
+                        help='Target loss ratio of generator in the end of the training for the controller [0.25]')
+    parser.add_argument('--control_gain', type=float, default=0.001,
+                        help='Gain of the controller [0.001]')
+
     return check_args(parser.parse_args())
 
 """checking arguments"""

@@ -43,6 +43,13 @@ class SAGAN(object):
         self.beta1 = args.beta1
         self.beta2 = args.beta2
 
+        #controller
+        self.target_starting_G_quality = args.target_starting_G_quality
+        self.target_ending_G_quality = args.target_ending_G_quality
+        self.control_gain = args.control_gain
+        self.G2D_ratio = self.target_starting_G_quality
+        self.use_controller = args.use_controller
+
         self.custom_dataset = False
 
         if self.dataset_name == 'mnist' :
@@ -282,10 +289,29 @@ class SAGAN(object):
         """" Testing """
         # for test
         self.fake_images = self.generator(self.z, is_training=False, reuse=True)
+        self.R_logits = self.discriminator(self.fake_images, is_training=False, reuse=True)
 
         """ Summary """
         self.d_sum = tf.summary.scalar("d_loss", self.d_loss)
         self.g_sum = tf.summary.scalar("g_loss", self.g_loss)
+
+
+
+
+        self.g_loss_D_raw_true = tf.nn.sigmoid_cross_entropy_with_logits(logits=self.R_logits,
+                                                                         labels=tf.ones_like(self.R_logits))
+        self.g_loss_D_raw_false = tf.nn.sigmoid_cross_entropy_with_logits(logits=self.R_logits,
+                                                                          labels=tf.zeros_like(self.R_logits))
+
+        self.D_prob_fake_G_image = tf.nn.softmax(
+            tf.concat(
+                [self.g_loss_D_raw_false,
+                 self.g_loss_D_raw_true], 1))
+        self.D_prob_fake_G_image_mean = tf.reduce_mean(
+            self.D_prob_fake_G_image[:, 0])
+
+        self.actual_G_quality_sum = tf.scalar_summary("G_quality",
+                                                   self.D_prob_fake_G_image_mean)
 
     ##################################################################################
     # Train
@@ -320,6 +346,7 @@ class SAGAN(object):
         # loop for epoch
         start_time = time.time()
         past_g_loss = -1.
+        past_d_loss = -1.
         for epoch in range(start_epoch, self.epoch):
             # get batch data
             for idx in range(start_batch_id, self.iteration):
@@ -341,21 +368,54 @@ class SAGAN(object):
                         self.z : batch_z
                     }
 
-                # update D network
-                _, summary_str, d_loss = self.sess.run([self.d_optim, self.d_sum, self.d_loss], feed_dict=train_feed_dict)
-                self.writer.add_summary(summary_str, counter)
 
-                # update G network
-                g_loss = None
-                if (counter - 1) % self.n_critic == 0:
-                    _, summary_str, g_loss = self.sess.run([self.g_optim, self.g_sum, self.g_loss], feed_dict=train_feed_dict)
+                def update_D():
+                    _, summary_str, d_loss = self.sess.run([self.d_optim, self.d_sum, self.d_loss], feed_dict=train_feed_dict)
                     self.writer.add_summary(summary_str, counter)
-                    past_g_loss = g_loss
+                    return d_loss
+
+                def update_G():
+                    _, summary_str, g_loss = self.sess.run([self.g_optim, self.g_sum, self.g_loss],
+                                                           feed_dict=train_feed_dict)
+                    self.writer.add_summary(summary_str, counter)
+                    return g_loss
+
+                d_loss =None
+                g_loss = None
+                if self.use_controller:
+                    self.target_G_quality = self.target_starting_G_quality + (
+                            self.target_ending_G_quality - self.target_starting_G_quality) * (epoch / self.epoch)
+
+                    self.actual_G_quality, summary_str = self.sess.run(
+                        [self.D_prob_fake_G_image_mean, self.actual_G_quality_sum],
+                        feed_dict={
+                            self.z: self.sample_z
+                        },
+                    )
+                    self.writer.add_summary(summary_str, counter)
+
+                    self.control_error = self.actual_G_quality - self.target_G_quality
+                    self.G2D_ratio = np.clip(self.G2D_ratio + self.control_gain * self.control_error, a_min=0, a_max=1)
+
+                    if np.random.rand() < self.G2D_ratio:
+                        d_loss = update_D()
+                        past_d_loss = d_loss
+                    else:
+                        g_loss = update_G()
+                        past_g_loss = g_loss
+
+                else:
+                    d_loss = update_D()
+                    g_loss = None
+                    if (counter - 1) % self.n_critic == 0:
+                        g_loss = update_G()
+                        past_g_loss = g_loss
 
                 # display training status
                 counter += 1
-                if g_loss == None :
-                    g_loss = past_g_loss
+                g_loss = g_loss or past_g_loss
+                d_loss = d_loss or past_d_loss
+
                 print("Epoch: [%2d] [%5d/%5d] time: %4.4f, d_loss: %.8f, g_loss: %.8f" \
                       % (epoch, idx, self.iteration, time.time() - start_time, d_loss, g_loss))
 
