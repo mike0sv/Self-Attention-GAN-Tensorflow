@@ -310,7 +310,7 @@ class SAGAN(object):
         self.D_prob_fake_G_image_mean = tf.reduce_mean(
             self.D_prob_fake_G_image[:, 0])
 
-        self.actual_G_quality_sum = tf.scalar_summary("G_quality",
+        self.actual_G_quality_sum = tf.summary.scalar("G_quality",
                                                    self.D_prob_fake_G_image_mean)
 
     ##################################################################################
