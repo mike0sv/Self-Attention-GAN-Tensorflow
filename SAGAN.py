@@ -3,6 +3,7 @@ from ops import *
 from utils import *
 from tensorflow.contrib.data import prefetch_to_device, shuffle_and_repeat, map_and_batch
 
+
 class SAGAN(object):
 
     def __init__(self, sess, args):
@@ -32,10 +33,8 @@ class SAGAN(object):
         self.sn = args.sn
         self.ld = args.ld
 
-
         self.sample_num = args.sample_num  # number of generated images to be saved
         self.test_num = args.test_num
-
 
         # train
         self.g_learning_rate = args.g_lr
@@ -43,28 +42,29 @@ class SAGAN(object):
         self.beta1 = args.beta1
         self.beta2 = args.beta2
 
-        #controller
+        # controller
         self.target_starting_G_quality = args.target_starting_G_quality
         self.target_ending_G_quality = args.target_ending_G_quality
         self.control_gain = args.control_gain
         self.G2D_ratio = self.target_starting_G_quality
         self.use_controller = args.use_controller
+        self.control_window = args.control_window
+        self.critic_power = args.critic_power
 
         self.custom_dataset = False
 
-        if self.dataset_name == 'mnist' :
+        if self.dataset_name == 'mnist':
             self.c_dim = 1
             self.data = load_mnist(size=self.img_size)
 
-        elif self.dataset_name == 'cifar10' :
+        elif self.dataset_name == 'cifar10':
             self.c_dim = 3
             self.data = load_cifar10(size=self.img_size)
 
-        else :
+        else:
             self.c_dim = 3
             self.data = load_data(dataset_name=self.dataset_name, size=self.img_size)
             self.custom_dataset = True
-
 
         self.dataset_num = len(self.data)
 
@@ -113,7 +113,8 @@ class SAGAN(object):
                     x = relu(x)
 
                 else:
-                    x = deconv(x, channels=ch // 2, kernel=4, stride=2, use_bias=False, sn=self.sn, scope='deconv_' + str(i))
+                    x = deconv(x, channels=ch // 2, kernel=4, stride=2, use_bias=False, sn=self.sn,
+                               scope='deconv_' + str(i))
                     x = batch_norm(x, is_training, scope='batch_norm_' + str(i))
                     x = relu(x)
 
@@ -130,12 +131,12 @@ class SAGAN(object):
                     x = relu(x)
 
                 else:
-                    x = deconv(x, channels=ch // 2, kernel=4, stride=2, use_bias=False, sn=self.sn, scope='deconv_' + str(i))
+                    x = deconv(x, channels=ch // 2, kernel=4, stride=2, use_bias=False, sn=self.sn,
+                               scope='deconv_' + str(i))
                     x = batch_norm(x, is_training, scope='batch_norm_' + str(i))
                     x = relu(x)
 
                 ch = ch // 2
-
 
             if self.up_sample:
                 x = up_sample(x, scale_factor=2)
@@ -143,7 +144,8 @@ class SAGAN(object):
                 x = tanh(x)
 
             else:
-                x = deconv(x, channels=self.c_dim, kernel=4, stride=2, use_bias=False, sn=self.sn, scope='G_deconv_logit')
+                x = deconv(x, channels=self.c_dim, kernel=4, stride=2, use_bias=False, sn=self.sn,
+                           scope='G_deconv_logit')
                 x = tanh(x)
 
             return x
@@ -159,7 +161,8 @@ class SAGAN(object):
             x = lrelu(x, 0.2)
 
             for i in range(self.layer_num // 2):
-                x = conv(x, channels=ch * 2, kernel=4, stride=2, pad=1, sn=self.sn, use_bias=False, scope='conv_' + str(i))
+                x = conv(x, channels=ch * 2, kernel=4, stride=2, pad=1, sn=self.sn, use_bias=False,
+                         scope='conv_' + str(i))
                 x = batch_norm(x, is_training, scope='batch_norm' + str(i))
                 x = lrelu(x, 0.2)
 
@@ -169,12 +172,12 @@ class SAGAN(object):
             x = self.attention(x, ch, sn=self.sn, scope="attention", reuse=reuse)
 
             for i in range(self.layer_num // 2, self.layer_num):
-                x = conv(x, channels=ch * 2, kernel=4, stride=2, pad=1, sn=self.sn, use_bias=False, scope='conv_' + str(i))
+                x = conv(x, channels=ch * 2, kernel=4, stride=2, pad=1, sn=self.sn, use_bias=False,
+                         scope='conv_' + str(i))
                 x = batch_norm(x, is_training, scope='batch_norm' + str(i))
                 x = lrelu(x, 0.2)
 
                 ch = ch * 2
-
 
             x = conv(x, channels=4, stride=1, sn=self.sn, use_bias=False, scope='D_logit')
 
@@ -182,25 +185,25 @@ class SAGAN(object):
 
     def attention(self, x, ch, sn=False, scope='attention', reuse=False):
         with tf.variable_scope(scope, reuse=reuse):
-            f = conv(x, ch // 8, kernel=1, stride=1, sn=sn, scope='f_conv') # [bs, h, w, c']
-            g = conv(x, ch // 8, kernel=1, stride=1, sn=sn, scope='g_conv') # [bs, h, w, c']
-            h = conv(x, ch, kernel=1, stride=1, sn=sn, scope='h_conv') # [bs, h, w, c]
+            f = conv(x, ch // 8, kernel=1, stride=1, sn=sn, scope='f_conv')  # [bs, h, w, c']
+            g = conv(x, ch // 8, kernel=1, stride=1, sn=sn, scope='g_conv')  # [bs, h, w, c']
+            h = conv(x, ch, kernel=1, stride=1, sn=sn, scope='h_conv')  # [bs, h, w, c]
 
             # N = h * w
-            s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True) # # [bs, N, N]
+            s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True)  # # [bs, N, N]
 
             beta = tf.nn.softmax(s, axis=-1)  # attention map
 
-            o = tf.matmul(beta, hw_flatten(h)) # [bs, N, C]
+            o = tf.matmul(beta, hw_flatten(h))  # [bs, N, C]
             gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
 
-            o = tf.reshape(o, shape=x.shape) # [bs, h, w, C]
+            o = tf.reshape(o, shape=x.shape)  # [bs, h, w, C]
             x = gamma * o + x
 
         return x
 
     def gradient_penalty(self, real, fake):
-        if self.gan_type == 'dragan' :
+        if self.gan_type == 'dragan':
             shape = tf.shape(real)
             eps = tf.random_uniform(shape=shape, minval=0., maxval=1.)
             x_mean, x_var = tf.nn.moments(real, axes=[0, 1, 2, 3])
@@ -213,9 +216,9 @@ class SAGAN(object):
             alpha = tf.random_uniform(shape=[shape[0], 1, 1, 1], minval=-1., maxval=1.)
             interpolated = tf.clip_by_value(real + alpha * noise, -1., 1.)  # x_hat should be in the space of X
 
-        else :
+        else:
             alpha = tf.random_uniform(shape=[self.batch_size, 1, 1, 1], minval=0., maxval=1.)
-            interpolated = alpha*real + (1. - alpha)*fake
+            interpolated = alpha * real + (1. - alpha) * fake
 
         logit = self.discriminator(interpolated, reuse=True)
 
@@ -240,19 +243,22 @@ class SAGAN(object):
     def build_model(self):
         """ Graph Input """
         # images
-        if self.custom_dataset :
+        if self.custom_dataset:
             Image_Data_Class = ImageData(self.img_size, self.c_dim)
             inputs = tf.data.Dataset.from_tensor_slices(self.data)
 
             gpu_device = '/gpu:0'
-            inputs = inputs.apply(shuffle_and_repeat(self.dataset_num)).apply(map_and_batch(Image_Data_Class.image_processing, self.batch_size, num_parallel_batches=16, drop_remainder=True)).apply(prefetch_to_device(gpu_device, self.batch_size))
+            inputs = inputs.apply(shuffle_and_repeat(self.dataset_num)).apply(
+                map_and_batch(Image_Data_Class.image_processing, self.batch_size, num_parallel_batches=16,
+                              drop_remainder=True)).apply(prefetch_to_device(gpu_device, self.batch_size))
 
             inputs_iterator = inputs.make_one_shot_iterator()
 
             self.inputs = inputs_iterator.get_next()
 
-        else :
-            self.inputs = tf.placeholder(tf.float32, [self.batch_size, self.img_size, self.img_size, self.c_dim], name='real_images')
+        else:
+            self.inputs = tf.placeholder(tf.float32, [self.batch_size, self.img_size, self.img_size, self.c_dim],
+                                         name='real_images')
 
         # noises
         self.z = tf.placeholder(tf.float32, [self.batch_size, 1, 1, self.z_dim], name='z')
@@ -265,9 +271,9 @@ class SAGAN(object):
         fake_images = self.generator(self.z)
         fake_logits = self.discriminator(fake_images, reuse=True)
 
-        if self.gan_type.__contains__('wgan') or self.gan_type == 'dragan' :
+        if self.gan_type.__contains__('wgan') or self.gan_type == 'dragan':
             GP = self.gradient_penalty(real=self.inputs, fake=fake_images)
-        else :
+        else:
             GP = 0
 
         # get loss for discriminator
@@ -283,8 +289,10 @@ class SAGAN(object):
         g_vars = [var for var in t_vars if 'generator' in var.name]
 
         # optimizers
-        self.d_optim = tf.train.AdamOptimizer(self.d_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.d_loss, var_list=d_vars)
-        self.g_optim = tf.train.AdamOptimizer(self.g_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.g_loss, var_list=g_vars)
+        self.d_optim = tf.train.AdamOptimizer(self.d_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(
+            self.d_loss, var_list=d_vars)
+        self.g_optim = tf.train.AdamOptimizer(self.g_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(
+            self.g_loss, var_list=g_vars)
 
         """" Testing """
         # for test
@@ -294,9 +302,6 @@ class SAGAN(object):
         """ Summary """
         self.d_sum = tf.summary.scalar("d_loss", self.d_loss)
         self.g_sum = tf.summary.scalar("g_loss", self.g_loss)
-
-
-
 
         self.g_loss_D_raw_true = tf.nn.sigmoid_cross_entropy_with_logits(logits=self.R_logits,
                                                                          labels=tf.ones_like(self.R_logits))
@@ -311,7 +316,7 @@ class SAGAN(object):
             self.D_prob_fake_G_image[:, 0])
 
         self.actual_G_quality_sum = tf.summary.scalar("G_quality",
-                                                   self.D_prob_fake_G_image_mean)
+                                                      self.D_prob_fake_G_image_mean)
 
     ##################################################################################
     # Train
@@ -347,30 +352,32 @@ class SAGAN(object):
         start_time = time.time()
         past_g_loss = -1.
         past_d_loss = -1.
+        generator_losses = []
+        discriminator_losses = []
         for epoch in range(start_epoch, self.epoch):
             # get batch data
             for idx in range(start_batch_id, self.iteration):
                 batch_z = np.random.uniform(-1, 1, [self.batch_size, 1, 1, self.z_dim])
 
-                if self.custom_dataset :
+                if self.custom_dataset:
 
                     train_feed_dict = {
                         self.z: batch_z
                     }
 
-                else :
+                else:
                     random_index = np.random.choice(self.dataset_num, size=self.batch_size, replace=False)
                     # batch_images = self.data[idx*self.batch_size : (idx+1)*self.batch_size]
                     batch_images = self.data[random_index]
 
                     train_feed_dict = {
-                        self.inputs : batch_images,
-                        self.z : batch_z
+                        self.inputs: batch_images,
+                        self.z: batch_z
                     }
 
-
                 def update_D():
-                    _, summary_str, d_loss = self.sess.run([self.d_optim, self.d_sum, self.d_loss], feed_dict=train_feed_dict)
+                    _, summary_str, d_loss = self.sess.run([self.d_optim, self.d_sum, self.d_loss],
+                                                           feed_dict=train_feed_dict)
                     self.writer.add_summary(summary_str, counter)
                     return d_loss
 
@@ -380,37 +387,52 @@ class SAGAN(object):
                     self.writer.add_summary(summary_str, counter)
                     return g_loss
 
-                d_loss =None
+                d_loss = None
                 g_loss = None
                 if self.use_controller:
-                    self.target_G_quality = self.target_starting_G_quality + (
-                            self.target_ending_G_quality - self.target_starting_G_quality) * (epoch / self.epoch)
-
-                    self.actual_G_quality, summary_str = self.sess.run(
-                        [self.D_prob_fake_G_image_mean, self.actual_G_quality_sum],
-                        feed_dict={
-                            self.z: self.sample_z
-                        },
-                    )
-                    self.writer.add_summary(summary_str, counter)
-
-                    self.control_error = self.actual_G_quality - self.target_G_quality
-                    self.G2D_ratio = np.clip(self.G2D_ratio + self.control_gain * self.control_error, a_min=0, a_max=1)
+                    # self.target_G_quality = self.target_starting_G_quality + (
+                    #         self.target_ending_G_quality - self.target_starting_G_quality) * (epoch / self.epoch)
+                    #
+                    # self.actual_G_quality, summary_str = self.sess.run(
+                    #     [self.D_prob_fake_G_image_mean, self.actual_G_quality_sum],
+                    #     feed_dict={
+                    #         self.z: self.sample_z
+                    #     },
+                    # )
+                    # self.writer.add_summary(summary_str, counter)
+                    #
+                    # self.control_error = self.actual_G_quality - self.target_G_quality
+                    # self.G2D_ratio = np.clip(self.G2D_ratio + self.control_gain * self.control_error, a_min=0, a_max=1)
+                    if past_d_loss == -1:
+                        self.G2D_ratio = 1
+                    elif past_g_loss == -1:
+                        self.G2D_ratio = 0
+                    elif len(generator_losses) + len(discriminator_losses) < self.control_window:
+                        self.G2D_ratio = len(generator_losses) / (len(generator_losses) + len(discriminator_losses))
+                    else:
+                        mean_g_loss = np.mean(generator_losses[-self.control_window:])
+                        mean_d_loss = np.mean(discriminator_losses[-self.control_window:])
+                        self.G2D_ratio = (self.critic_power * mean_d_loss) / (self.critic_power * mean_d_loss + mean_g_loss)
 
                     if np.random.rand() < self.G2D_ratio:
                         d_loss = update_D()
                         past_d_loss = d_loss
                         step = 'D'
+                        discriminator_losses.append(d_loss)
                     else:
                         g_loss = update_G()
                         past_g_loss = g_loss
                         step = 'G'
+                        generator_losses.append(g_loss)
 
+                    g_loss = g_loss or past_g_loss
+                    d_loss = d_loss or past_d_loss
                     print("Epoch: [{:2d}] [{:5d}/{:5d}] "
                           "time: {:4.4f}, d_loss: {:.8f}, "
-                          "g_loss: {:.8f}, step {}, ratio {}".format(epoch, idx, self.iteration,
-                                                                     time.time() - start_time, d_loss,
-                                                                     g_loss, step, self.G2D_ratio))
+                          "g_loss: {:.8f}, {}[{:5d}:{:5d}], ratio {}".format(epoch, idx, self.iteration,
+                                                                             time.time() - start_time, d_loss,
+                                                                             g_loss, step, len(generator_losses),
+                                                                             len(discriminator_losses), self.G2D_ratio))
 
                 else:
                     d_loss = update_D()
@@ -418,7 +440,6 @@ class SAGAN(object):
                     if (counter - 1) % self.n_critic == 0:
                         g_loss = update_G()
                         past_g_loss = g_loss
-
 
                     g_loss = g_loss or past_g_loss
                     d_loss = d_loss or past_d_loss
@@ -428,16 +449,17 @@ class SAGAN(object):
                 # display training status
                 counter += 1
                 # save training results for every 300 steps
-                if np.mod(idx+1, self.print_freq) == 0:
+                if np.mod(idx + 1, self.print_freq) == 0:
                     samples = self.sess.run(self.fake_images, feed_dict={self.z: self.sample_z})
                     tot_num_samples = min(self.sample_num, self.batch_size)
                     manifold_h = int(np.floor(np.sqrt(tot_num_samples)))
                     manifold_w = int(np.floor(np.sqrt(tot_num_samples)))
                     save_images(samples[:manifold_h * manifold_w, :, :, :],
                                 [manifold_h, manifold_w],
-                                './' + self.sample_dir + '/' + self.model_name + '_train_{:02d}_{:05d}.png'.format(epoch, idx+1))
+                                './' + self.sample_dir + '/' + self.model_name + '_train_{:02d}_{:05d}.png'.format(
+                                    epoch, idx + 1))
 
-                if np.mod(idx+1, self.save_freq) == 0:
+                if np.mod(idx + 1, self.save_freq) == 0:
                     self.save(self.checkpoint_dir, counter)
 
             # After an epoch, start_batch_id is set to zero
@@ -464,7 +486,7 @@ class SAGAN(object):
         if not os.path.exists(checkpoint_dir):
             os.makedirs(checkpoint_dir)
 
-        self.saver.save(self.sess, os.path.join(checkpoint_dir, self.model_name+'.model'), global_step=step)
+        self.saver.save(self.sess, os.path.join(checkpoint_dir, self.model_name + '.model'), global_step=step)
 
     def load(self, checkpoint_dir):
         import re
@@ -475,7 +497,7 @@ class SAGAN(object):
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
             self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
-            counter = int(next(re.finditer("(\d+)(?!.*\d)",ckpt_name)).group(0))
+            counter = int(next(re.finditer("(\d+)(?!.*\d)", ckpt_name)).group(0))
             print(" [*] Success to read {}".format(ckpt_name))
             return True, counter
         else:
@@ -513,7 +535,7 @@ class SAGAN(object):
 
         """ random condition, random noise """
 
-        for i in range(self.test_num) :
+        for i in range(self.test_num):
             z_sample = np.random.uniform(-1, 1, size=(self.batch_size, 1, 1, self.z_dim))
 
             samples = self.sess.run(self.fake_images, feed_dict={self.z: z_sample})

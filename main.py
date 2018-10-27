@@ -55,6 +55,10 @@ def parse_args():
                         help='Target loss ratio of generator in the end of the training for the controller [0.25]')
     parser.add_argument('--control_gain', type=float, default=0.001,
                         help='Gain of the controller [0.001]')
+    parser.add_argument('--control_window', type=int, default=50,
+                        help='----')
+    parser.add_argument('--critic_power', type=float, default=2.,
+                        help='----')
 
     return check_args(parser.parse_args())
 
